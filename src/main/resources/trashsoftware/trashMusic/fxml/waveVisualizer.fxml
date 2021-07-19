@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.canvas.Canvas?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.ScrollBar?>
+<GridPane xmlns="http://javafx.com/javafx"
+          xmlns:fx="http://javafx.com/fxml"
+          fx:controller="trashsoftware.trashMusic.fxml.WaveVisualizer"
+          prefHeight="580.0" prefWidth="1280.0">
+
+    <rowConstraints>
+        <RowConstraints/>
+        <RowConstraints prefHeight="20.0"/>
+        <RowConstraints prefHeight="30.0"/>
+    </rowConstraints>
+
+    <columnConstraints>
+        <ColumnConstraints/>
+        <ColumnConstraints prefWidth="30.0"/>
+    </columnConstraints>
+
+    <VBox>
+        <Canvas fx:id="mainCanvas" width="1220.0" height="480.0"/>
+        <Canvas fx:id="timeBar" width="1220.0" height="40.0"/>
+    </VBox>
+
+    <ScrollBar fx:id="hScrollBar" GridPane.rowIndex="1"/>
+
+    <VBox GridPane.columnIndex="1" spacing="5.0">
+        <Button text="+" onAction="#zoomInVAction" prefWidth="30.0"/>
+        <Button text="-" onAction="#zoomOutVAction" prefWidth="30.0"/>
+    </VBox>
+
+    <HBox GridPane.rowIndex="2" spacing="5.0">
+        <Button text="+" onAction="#zoomInHAction" prefWidth="30.0"/>
+        <Button text="-" onAction="#zoomOutHAction" prefWidth="30.0"/>
+    </HBox>
+
+</GridPane>

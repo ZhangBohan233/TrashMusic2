@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.*?>
+<?import java.util.*?>
+<?import javafx.scene.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.canvas.Canvas?>
+<VBox xmlns="http://javafx.com/javafx"
+      xmlns:fx="http://javafx.com/fxml"
+      fx:controller="trashsoftware.trashMusic.fxml.EditorView"
+      prefHeight="720.0" prefWidth="1280.0">
+
+    <padding>
+        <Insets topRightBottomLeft="5.0"/>
+    </padding>
+
+    <MenuBar>
+        <Menu text="%file">
+            <MenuItem text="%open" onAction="#openFileAction"/>
+            <MenuItem text="%save" onAction="#saveAction"/>
+            <MenuItem text="%saveAs" onAction="#saveAsAction"/>
+            <SeparatorMenuItem/>
+            <MenuItem text="%viewWave" onAction="#viewWaveAction"/>
+        </Menu>
+    </MenuBar>
+
+    <HBox spacing="20.0" alignment="TOP_CENTER">
+        <HBox alignment="CENTER">
+            <Label text="1="/>
+            <ComboBox fx:id="basePitchBox"/>
+        </HBox>
+        <VBox alignment="CENTER">
+            <Label fx:id="beatsCountLabel"/>
+            <Separator/>
+            <Label fx:id="beatLengthLabel"/>
+        </VBox>
+        <HBox alignment="CENTER">
+            <Label text="%speed"/>
+            <Label text="="/>
+            <ComboBox fx:id="speedBox"/>
+        </HBox>
+
+        <HBox alignment="CENTER">
+            <Button text="▶" fx:id="playBtn" onAction="#playAction"/>
+            <Button text="||" fx:id="pauseBtn" onAction="#pauseAction" disable="true"/>
+            <Button text="■" fx:id="stopBtn" onAction="#stopAction" disable="true"/>
+        </HBox>
+    </HBox>
+
+    <ScrollPane VBox.vgrow="ALWAYS">
+        <Canvas fx:id="canvas" width="1220.0" height="640"/>
+    </ScrollPane>
+
+</VBox>
