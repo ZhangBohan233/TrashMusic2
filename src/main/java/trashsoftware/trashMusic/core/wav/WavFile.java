@@ -2,17 +2,17 @@ package trashsoftware.trashMusic.core.wav;
 
 import trashsoftware.trashMusic.core.eq.Equalizer;
 import trashsoftware.trashMusic.core.eq.Overtone;
+import trashsoftware.trashMusic.core.volTransform.VolumeTransform;
 import trashsoftware.trashMusic.util.Util;
 
 import java.io.*;
-import java.util.Collections;
 import java.util.Map;
 
 public class WavFile {
 
     public static final int DEFAULT_SAMPLE_RATE = 22050;
 
-    private final File file;
+    private File file;
     private int[][] data;
     private int numFrames;
     private int numChannels;
@@ -22,6 +22,9 @@ public class WavFile {
     private long sampleRate;
     private long byteRate;
     private Util.IntList[] writeBuffer;
+
+    private int lastOverFrames;  // 上一次造波时额外的帧数，用于校正
+    private boolean lastWaveGoesDown;  // 正弦波上一次结束是向下
 
     private WavFile(File file) {
         this.file = file;
@@ -87,6 +90,9 @@ public class WavFile {
 
             if (readData) {
                 wavFile.data = new int[wavFile.numChannels][wavFile.numFrames];
+                // todo
+//                wavFile.endFreq = new double[wavFile.numChannels];
+//                wavFile.lastEndFreq = new double[wavFile.numChannels];
                 for (int f = 0; f < wavFile.numFrames; ++f) {
                     for (int c = 0; c < wavFile.numChannels; ++c) {
                         if (wavFile.bitsPerSample == 8) {
@@ -101,12 +107,64 @@ public class WavFile {
         }
     }
 
+    public static int[] makeSimpleWaveData(double freq, double durationMs, int bitsPerSample, long sampleRate,
+                                           double volPercent) {
+        int halfTotal = bitsPerSample == 8 ? 128 : 32768;
+        int nFrames = (int) Math.round(durationMs * sampleRate / 1000.0);
+        double waveLength = sampleRate / freq;
+        double multiplier = Math.PI / (waveLength / 2);
+
+        int[] res = new int[nFrames];
+
+        for (int frame = 0; frame < nFrames; ++frame) {
+            double y = Math.sin(frame * multiplier) * halfTotal * volPercent / 100.0;
+            res[frame] = (int) y;
+        }
+
+        return res;
+    }
+
     public boolean hasData() {
         return data != null;
     }
 
     public File getFile() {
         return file;
+    }
+
+    public void setFile(File file) {
+        this.file = file;
+    }
+    
+    public void overlay(WavFile other) {
+        if (sampleRate != other.sampleRate) {
+            throw new RuntimeException("Sample rate not the same");
+        }
+        if (numChannels != other.numChannels) {
+            throw new RuntimeException("Number of channels do not match");
+        }
+        if (other.data == null) {
+            throw new RuntimeException("Cannot overlay from an empty wave");
+        }
+        int length = data == null ? 0 : data[0].length;
+        int oLength = other.data[0].length;
+        
+        int[][] result;
+        if (data != null && length >= oLength) {
+            result = data;
+        } else {
+            result = new int[numChannels][oLength];
+        }
+        
+        for (int c = 0; c < numChannels; c++) {
+            for (int i = 0; i < result[c].length; ++i) {
+                int a = i < length ? data[c][i] : 0;
+                int b = i < oLength ? other.data[c][i] : 0;
+                result[c][i] = a + b;
+            }
+        }
+        data = result;
+        numFrames = data[0].length;
     }
 
     public int getBitsPerSample() {
@@ -118,7 +176,7 @@ public class WavFile {
     }
 
     public int getNumFrames() {
-        return numFrames;
+        return data == null ? 0 : data[0].length;
     }
 
     public long getSampleRate() {
@@ -151,24 +209,35 @@ public class WavFile {
     }
 
     public double putFlatFreq(double freq, double durationMs, double volumePercentage) {
-        return putFlatFreq(freq, durationMs, volumePercentage, 0, Overtone.PLAIN, Equalizer.PLAIN);
+        return putFlatFreq(freq, durationMs, volumePercentage, null, 0, Overtone.PLAIN, Equalizer.PLAIN);
     }
 
-    public double putFlatFreq(double freq, double durationMs, double volumePercentage,
-                            Overtone overtone, Equalizer equalizer) {
-        return putFlatFreq(freq, durationMs, volumePercentage, 0, overtone, equalizer);
-    }
+//    public double putFlatFreq(double freq, 
+//                              double durationMs, 
+//                              double volumePercentage,
+//                              double volumeDecayPeriod,
+//                              Overtone overtone, Equalizer equalizer) {
+//        return putFlatFreq(freq, durationMs, volumePercentage, volumeDecayPeriod, 0, overtone, equalizer);
+//    }
 
     /**
      * Returns the actual number of milliseconds written
+     * 
+     * @param volumeTransform 每个音符的音量渐变方式，null就不变
      */
-    public double putFlatFreq(double freq, double durationMs, double volumePercentage, int channelIndex,
-                            Overtone overtone, Equalizer equalizer) {
+    public double putFlatFreq(double freq, 
+                              double durationMs, 
+                              double volumePercentage, 
+                              VolumeTransform volumeTransform,
+                              int channelIndex,
+                              Overtone overtone, 
+                              Equalizer equalizer) {
         int halfTotal = bitsPerSample == 8 ? 128 : 32768;
-        int nFrames = (int) Math.round(durationMs * sampleRate / 1000.0);
+        int nFrames = (int) Math.round(durationMs * sampleRate / 1000.0) - lastOverFrames;
         if (freq == 0) {
             for (int frame = 0; frame < nFrames; ++frame) writeBuffer[channelIndex].add(0);
             numFrames += nFrames;
+            lastOverFrames = 0;
             return 1000.0 * nFrames / sampleRate;
         }
 
@@ -177,6 +246,7 @@ public class WavFile {
         double volDivider = overtone.getTotalVolume();
 
         int i = 0;
+        int maxWaveLengthFrames = 0;
         for (Map.Entry<Double, Double> entry : overtoneMap.entrySet()) {
             double mul = entry.getKey();
             double vol = entry.getValue();
@@ -185,43 +255,47 @@ public class WavFile {
                     vol * halfTotal * volumePercentage / 100.0 / volDivider;
             double waveLength = sampleRate / thisFreq;
             double multiplier = Math.PI / (waveLength / 2);
+            int waveLengthFrames = (int) waveLength;
+            if (waveLengthFrames > maxWaveLengthFrames) {
+                maxWaveLengthFrames = waveLengthFrames;
+            }
             mulVols[i][0] = multiplier;
-            mulVols[i++][1] = realVol;
+            mulVols[i][1] = realVol;
+            i++;
         }
 
-        for (int frame = 0; frame < nFrames; ++frame) {
+        int framesWritten = 0;
+        boolean inverse = lastWaveGoesDown;
+        double lastY = 0.0;
+        for (int frame = 0; frame < nFrames + maxWaveLengthFrames; ++frame) {
             double y = 0.0;
             for (double[] mulVol : mulVols) {
-                y += Math.sin(frame * mulVol[0]) * mulVol[1];
+                double height = Math.sin(frame * mulVol[0]) * mulVol[1];
+                if (volumeTransform == null) y += height;
+                else y += volumeTransform.waveHeightAt(frame, height);
             }
+            if (inverse) {
+                y = -y;
+            }
+            
+            if (frame >= nFrames && ((y >= 0 && lastY < 0) || y < 0 && lastY >= 0)) {
+                lastWaveGoesDown = y < lastY;
+                break;
+            }
+            lastY = y;
 
             writeBuffer[channelIndex].add((int) y);
-            numFrames++;
+            framesWritten++;
         }
-        return 1000.0 * nFrames / sampleRate;
+        lastOverFrames = framesWritten - nFrames;
+        numFrames += framesWritten;
+        return 1000.0 * framesWritten / sampleRate;
     }
 
     public void putData(int[] data, int channelIndex) {
         for (int datum : data) {
             writeBuffer[channelIndex].add(datum);
         }
-    }
-
-    public static int[] makeSimpleWaveData(double freq, double durationMs, int bitsPerSample, long sampleRate,
-                                           double volPercent) {
-        int halfTotal = bitsPerSample == 8 ? 128 : 32768;
-        int nFrames = (int) Math.round(durationMs * sampleRate / 1000.0);
-        double waveLength = sampleRate / freq;
-        double multiplier = Math.PI / (waveLength / 2);
-
-        int[] res = new int[nFrames];
-
-        for (int frame = 0; frame < nFrames; ++frame) {
-            double y = Math.sin(frame * multiplier) * halfTotal * volPercent / 100.0;
-            res[frame] = (int) y;
-        }
-
-        return res;
     }
 
     public void flushBuffer() {

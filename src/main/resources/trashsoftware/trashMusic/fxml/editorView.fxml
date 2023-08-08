@@ -25,12 +25,21 @@
             <SeparatorMenuItem/>
             <MenuItem text="%viewWave" onAction="#viewWaveAction"/>
         </Menu>
+        <Menu text="%edit">
+            <MenuItem text="%undo" onAction="#undoAction"/>
+            <MenuItem text="%refreshWav" onAction="#refreshWavAction"/>
+        </Menu>
     </MenuBar>
 
     <HBox spacing="20.0" alignment="TOP_CENTER">
         <HBox alignment="CENTER">
             <Label text="1="/>
             <ComboBox fx:id="basePitchBox"/>
+        </HBox>
+        <HBox alignment="CENTER" spacing="5.0">
+            <Button fx:id="baseCHighBtn" text="∧" onAction="#baseCHighAction"/>
+            <Label fx:id="baseCLabel" text="4"/>
+            <Button fx:id="baseCLowBtn" text="∨" onAction="#baseCLowAction"/>
         </HBox>
         <VBox alignment="CENTER">
             <Label fx:id="beatsCountLabel"/>
@@ -48,9 +57,74 @@
             <Button text="||" fx:id="pauseBtn" onAction="#pauseAction" disable="true"/>
             <Button text="■" fx:id="stopBtn" onAction="#stopAction" disable="true"/>
         </HBox>
+
+        <HBox alignment="CENTER">
+            <Button text=" | " onAction="#measurePartButtonsAction"/>
+            <Button text="||:" onAction="#measurePartButtonsAction"/>
+            <Button text=":||" onAction="#measurePartButtonsAction"/>
+            <Button text=" ||" onAction="#measurePartButtonsAction"/>
+        </HBox>
+
+        <HBox alignment="CENTER">
+            <ToggleButton text="1">
+                <toggleGroup>
+                    <ToggleGroup fx:id="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="1/2">
+                <toggleGroup>
+                    <fx:reference source="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="1/4">
+                <toggleGroup>
+                    <fx:reference source="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="1/8">
+                <toggleGroup>
+                    <fx:reference source="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="1/16">
+                <toggleGroup>
+                    <fx:reference source="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="1/32">
+                <toggleGroup>
+                    <fx:reference source="timeValueGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <CheckBox fx:id="extendCheckBox" text="•"/>
+        </HBox>
+
+        <HBox alignment="CENTER" spacing="5.0">
+            <Button fx:id="highBtn" text="∧" onAction="#highAction"/>
+            <Label fx:id="lowHighLabel" text="0"/>
+            <Button fx:id="lowBtn" text="∨" onAction="#lowAction"/>
+        </HBox>
+
+        <HBox alignment="CENTER">
+            <ToggleButton text="♯">
+                <toggleGroup>
+                    <ToggleGroup fx:id="sharpFlatGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="♮">
+                <toggleGroup>
+                    <fx:reference source="sharpFlatGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+            <ToggleButton text="♭">
+                <toggleGroup>
+                    <fx:reference source="sharpFlatGroup"/>
+                </toggleGroup>
+            </ToggleButton>
+        </HBox>
     </HBox>
 
-    <ScrollPane VBox.vgrow="ALWAYS">
+    <ScrollPane fx:id="scrollPane" VBox.vgrow="ALWAYS">
         <Canvas fx:id="canvas" width="1220.0" height="640"/>
     </ScrollPane>
 

@@ -7,31 +7,13 @@ import java.util.ArrayList;
  */
 public class SoundPart extends ArrayList<MeasurePart> {
 
-    private int volume;
-    private final String name;
+    private final PlainSoundPart soundPart;
 
-    public SoundPart(String name, int volume) {
-        this.name = name;
-        this.volume = volume;
+    public SoundPart(PlainSoundPart soundPart) {
+        this.soundPart = soundPart;
     }
-
+    
     public String getName() {
-        return name;
-    }
-
-    public int getVolume() {
-        return volume;
-    }
-
-    public void setVolume(int volume) {
-        this.volume = volume;
-    }
-
-    public MeasurePart getLast() {
-        return get(size() - 1);
-    }
-
-    public MeasurePart removeLast() {
-        return remove(size() - 1);
+        return soundPart.getName();
     }
 }

@@ -28,7 +28,7 @@ public class Pitch {
                     5, "F",
                     6, "F#",
                     7, "G",
-                    8, "G#",
+                    8, "Ab",
                     9, "A"
             ),
             Map.of(
@@ -64,7 +64,7 @@ public class Pitch {
         int shift = 0;
         if (rep.length() == 3) {
             char shiftChar = rep.charAt(shiftIndex);
-            if (shiftChar == '#') shift = 1;
+            if (shiftChar == '#' || shiftChar == '♯') shift = 1;
             else if (shiftChar == 'b' || shiftChar == '♭') shift = -1;
             else throw new TrashMusicException("Unexpected pitch");
         }
@@ -96,17 +96,24 @@ public class Pitch {
     public int hashCode() {
         return Objects.hash(order);
     }
+    
+    public int getMajor() {
+        return order / 12;
+    }
+    
+    public int getMinor() {
+        return order % 12;
+    }
 
     @Override
     public String toString() {
-        int major = order / 12;
-        int minor = order % 12;
-        return ORDER_PITCH.get(minor) + major;
+        return ORDER_PITCH.get(getMinor()) + getMajor();
     }
 
     public String toStringMusical() {
         String normal = toString();
+        char first = normal.charAt(1);
         if (normal.length() == 2) return normal.substring(0, 1);
-        else return (normal.charAt(1) == 'b' ? '♭' : normal.charAt(1)) + normal.substring(0, 1);
+        else return (first == 'b' ? '♭' : '♯') + normal.substring(0, 1);
     }
 }

@@ -10,6 +10,7 @@ module trashMusic {
     exports trashsoftware.trashMusic.core;
     exports trashsoftware.trashMusic.core.wav;
     exports trashsoftware.trashMusic.core.eq;
+    exports trashsoftware.trashMusic.core.volTransform;
 
     opens trashsoftware.trashMusic.fxml;
 }

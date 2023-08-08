@@ -2,6 +2,7 @@ package trashsoftware.trashMusic.core;
 
 import trashsoftware.trashMusic.core.eq.Equalizer;
 import trashsoftware.trashMusic.core.eq.Overtone;
+import trashsoftware.trashMusic.core.volTransform.VolumeTransform;
 import trashsoftware.trashMusic.core.wav.WavFile;
 
 import java.io.File;
@@ -10,11 +11,12 @@ import java.io.IOException;
 public class TmnTest {
 
     public static void main(String[] args) throws IOException {
-        TrashMusicNotation tmn = TrashMusicNotation.fromTmnFile(new File("files/死了都要爱.tmn"));
+        TrashMusicNotation tmn = TrashMusicNotation.fromTmnFile(new File("files/嘉宾.tmn"));
         System.out.println(tmn);
         tmn.writeWav(22050,
                 new TrashMusicNotation.OvertoneEqualizer[]
                         {new TrashMusicNotation.OvertoneEqualizer(Overtone.PLAIN, Equalizer.PLAIN)},
+                new VolumeTransform[]{null, null},
                 false);
         WavFile beatsFile = tmn.makeDrumbeats();
         beatsFile.writeWav();

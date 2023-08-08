@@ -80,7 +80,7 @@ public class Note implements MusicElement {
     }
 
     public String toStringMusical() {
-        String shiftStr = "♭".repeat(Math.max(0, -shift)) + "#".repeat(Math.max(0, shift));
+        String shiftStr = "♭".repeat(Math.max(0, -shift)) + "♯".repeat(Math.max(0, shift));
         return shiftStr + num;
     }
 

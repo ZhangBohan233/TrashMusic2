@@ -2,6 +2,9 @@ package trashsoftware.trashMusic.core;
 
 import trashsoftware.trashMusic.core.eq.Equalizer;
 import trashsoftware.trashMusic.core.eq.Overtone;
+import trashsoftware.trashMusic.core.volTransform.ExpVolumeTransform;
+import trashsoftware.trashMusic.core.volTransform.LinearVolumeTransform;
+import trashsoftware.trashMusic.core.volTransform.VolumeTransform;
 import trashsoftware.trashMusic.core.wav.WavFile;
 import trashsoftware.trashMusic.util.Util;
 
@@ -13,13 +16,13 @@ import java.util.zip.CRC32;
 public class TrashMusicNotation {
 
     private static final double baseVolMultiplier = 0.5;
-    private SoundPart[] soundParts;
-    private int speed;
-    private double beatLength;  // 以几分音符为一排，四分音符为0.25
-    private int beatsCount;  // 每小节拍数
-    private Pitch basePitch;
     private final Lyrics lyrics = new Lyrics();
     private final File tmnFile;
+    private PlainSoundPart[] soundParts;
+    private int speed;
+    private double beatLength;  // 以几分音符为一拍，四分音符为0.25
+    private int beatsCount;  // 每小节拍数
+    private Pitch basePitch;
 
     private TrashMusicNotation(File tmnFile) {
         this.tmnFile = tmnFile;
@@ -27,7 +30,7 @@ public class TrashMusicNotation {
 
     public static TrashMusicNotation fromTmnFile(File tmnFile) {
         TrashMusicNotation notation = new TrashMusicNotation(tmnFile);
-        SoundPart activeSoundPart = null;
+        PlainSoundPart activeSoundPart = null;
         boolean mainStarted = false;
         Note lastNote = null;
         try (BufferedReader br = new BufferedReader(new FileReader(tmnFile))) {
@@ -44,29 +47,30 @@ public class TrashMusicNotation {
                             part = part.strip();
                             if (!part.isBlank()) {
                                 if (part.startsWith("(") && part.endsWith(")")) {
-                                    SoundPart soundPart = notation
+                                    PlainSoundPart soundPart = notation
                                             .getSoundPartByName(part.substring(1, part.length() - 1));
                                     if (soundPart != null) activeSoundPart = soundPart;
                                 } else if (part.equals("|")) {
-                                    activeSoundPart.add(new MeasurePart());
+                                    activeSoundPart.add(new PlainMeasurePart());
                                 } else if (part.equals("||")) {
-                                    activeSoundPart.getLast().setPartType(MeasurePart.PartType.REPEAT_FROM_START);
-                                    activeSoundPart.add(new MeasurePart());
+                                    activeSoundPart.getLast().setPartType(PlainMeasurePart.PartType.REPEAT_FROM_START);
+                                    activeSoundPart.add(new PlainMeasurePart());
                                 } else if (part.equals(":||")) {
-                                    activeSoundPart.getLast().setPartType(MeasurePart.PartType.END_OF_REPEAT);
-                                    activeSoundPart.add(new MeasurePart());
+                                    activeSoundPart.getLast().setPartType(PlainMeasurePart.PartType.END_OF_REPEAT);
+                                    activeSoundPart.add(new PlainMeasurePart());
                                 } else if (part.equals("||:")) {
                                     if (activeSoundPart.getLast().isEmpty()) {
                                         activeSoundPart.removeLast();
                                     }
-                                    activeSoundPart.add(new MeasurePart(MeasurePart.PartType.BEGIN_OF_REPEAT));
+                                    activeSoundPart.add(new PlainMeasurePart(PlainMeasurePart.PartType.BEGIN_OF_REPEAT));
                                 } else if (isMusicDigit(part.charAt(0)) &&
                                         (part.length() == 1 || part.charAt(1) != ':')) {
                                     Note note = analyzeNote(part, notation.beatLength);
                                     lastNote = note;
-                                    MeasurePart last = activeSoundPart.getLast();
-                                    appendToNested(last, note, last.getBeatsInPart());
-                                    last.setBeatsInPart(last.getBeatsInPart() + note.getBeats());
+                                    PlainMeasurePart last = activeSoundPart.getLast();
+                                    last.add(note);
+//                                    appendToNested(last, note, last.getBeatsInPart());
+//                                    last.setBeatsInPart(last.getBeatsInPart() + note.getBeats());
                                 } else {
                                     int par;
                                     String text;
@@ -78,7 +82,8 @@ public class TrashMusicNotation {
                                         par = 1;
                                         text = part;
                                     }
-                                    if (lastNote == null) throw new TrashMusicException("Syntax error: leading lyrics");
+                                    if (lastNote == null)
+                                        throw new TrashMusicException("Syntax error: leading lyrics");
                                     notation.lyrics.putLyric(par, lastNote, text);
                                 }
                             }
@@ -93,9 +98,9 @@ public class TrashMusicNotation {
                             }
                             mainStarted = true;
                             if (notation.soundParts == null) {
-                                notation.soundParts = new SoundPart[1];
-                                notation.soundParts[0] = new SoundPart("A", 100);
-                                notation.soundParts[0].add(new MeasurePart());
+                                notation.soundParts = new PlainSoundPart[1];
+                                notation.soundParts[0] = new PlainSoundPart("Solo", 100, 0);
+                                notation.soundParts[0].add(new PlainMeasurePart());
                                 activeSoundPart = notation.soundParts[0];
                             }
                         } else {
@@ -113,11 +118,24 @@ public class TrashMusicNotation {
                                     break;
                                 case "beat":
                                     String[] beatStr = parts[1].split("/");
-                                    if (beatStr.length != 2) throw new TrashMusicException("Syntax error");
+                                    if (beatStr.length != 2)
+                                        throw new TrashMusicException("Syntax error");
                                     notation.beatsCount = Integer.parseInt(beatStr[0].strip());
                                     notation.beatLength = 1.0 / Integer.parseInt(beatStr[1].strip());
                                     break;
                                 case "soundParts":
+                                    String[] soundPartNames = parts[1].split(",");
+                                    notation.soundParts = new PlainSoundPart[soundPartNames.length];
+
+                                    for (int i = 0; i < soundPartNames.length; i++) {
+                                        notation.soundParts[i] = new PlainSoundPart(
+                                                soundPartNames[i].strip(),
+                                                80,
+                                                i);
+                                        notation.soundParts[i].add(new PlainMeasurePart());
+                                    }
+
+                                    activeSoundPart = notation.soundParts[0];
                                 case "volumes":
                                     break;
                             }
@@ -129,19 +147,7 @@ public class TrashMusicNotation {
             e.printStackTrace();
         }
 
-        for (int sp = 0; sp < notation.soundParts.length; sp++) {
-            SoundPart soundPart = notation.soundParts[sp];
-            if (soundPart.size() > 0) {
-                if (soundPart.getLast().isEmpty()) soundPart.removeLast();
-                for (int p = 0; p < soundPart.size(); p++) {
-                    MeasurePart part = soundPart.get(p);
-                    if (part.getBeatsInPart() != notation.beatsCount) {
-                        System.err.printf("第%d声部第%d小节拍数不符。实际拍数为%f拍%n",
-                                sp + 1, p + 1, part.getBeatsInPart());
-                    }
-                }
-            }
-        }
+        System.out.println(notation.basePitch);
 
         return notation;
     }
@@ -214,7 +220,8 @@ public class TrashMusicNotation {
         if (high != 0 && low != 0) throw new TrashMusicException("Cannot both high and low");
         int longer = Util.count(notation, '-');
         int shorter = Util.count(notation, '_');
-        if (longer != 0 && shorter != 0) throw new TrashMusicException("Cannot both long and short");
+        if (longer != 0 && shorter != 0)
+            throw new TrashMusicException("Cannot both long and short");
 
         // length 指拍数。简谱标准为四分音符，其 beat_length = 0.25。
         // 如以二分音符为一拍，则四分音符拍数为0.5
@@ -234,8 +241,38 @@ public class TrashMusicNotation {
         return c >= '0' && c <= '7';
     }
 
+    public SoundPart[] makeGroupedParts() {
+        SoundPart[] soundParts = new SoundPart[this.soundParts.length];
+        for (int sp = 0; sp < soundParts.length; ++sp) {
+            PlainSoundPart psp = this.soundParts[sp];
+            SoundPart soundPart = new SoundPart(psp);
+            for (int p = 0; p < psp.size(); ++p) {
+                PlainMeasurePart pmp = psp.get(p);
+                double beatsInPart = pmp.getBeatsInPart();
+                if (beatsInPart != beatsCount && beatsInPart != 0) {
+                    System.err.printf("第%d声部第%d小节拍数不符。实际拍数为%f拍。",
+                            sp + 1, p + 1, pmp.getBeatsInPart());
+                    System.err.println(pmp);
+                }
+                MeasurePart mp = new MeasurePart(pmp);
+                double beats = 0.0;
+                for (Note note : pmp) {
+                    appendToNested(mp, note, beats);
+                    beats += note.getBeats();
+                }
+                soundPart.add(mp);
+            }
+            soundParts[sp] = soundPart;
+        }
+        return soundParts;
+    }
+
     public File waveFile() {
         return new File(tmnFile.getAbsolutePath() + ".wav");
+    }
+
+    public File waveFile(int soundPartNum) {
+        return new File(tmnFile.getAbsolutePath() + ".part" + soundPartNum + ".wav");
     }
 
     public File drumFile() {
@@ -246,11 +283,11 @@ public class TrashMusicNotation {
         byte[] header = {(byte) speed, (byte) (beatLength * 8), (byte) beatsCount, (byte) basePitch.getOrder()};
         CRC32 crc32 = new CRC32();
         crc32.update(header);
-        for (SoundPart sp : soundParts) {
+        for (PlainSoundPart sp : soundParts) {
             crc32.update(sp.getVolume());
         }
-        for (SoundPart sp : soundParts) {
-            for (MeasurePart mp : sp) {
+        for (PlainSoundPart sp : soundParts) {
+            for (PlainMeasurePart mp : sp) {
                 mp.updateCrc32(crc32);
             }
         }
@@ -269,10 +306,10 @@ public class TrashMusicNotation {
 
             if (soundParts.length != 1) {
                 bw.write(String.format("soundParts=%s\n",
-                        List.of(soundParts).stream().map(SoundPart::getName).collect(Collectors.joining(","))));
+                        List.of(soundParts).stream().map(PlainSoundPart::getName).collect(Collectors.joining(","))));
                 bw.write(String.format("volumes=%s\n",
                         List.of(soundParts).stream().map(
-                                sp -> String.valueOf(sp.getVolume()))
+                                        sp -> String.valueOf(sp.getVolume()))
                                 .collect(Collectors.joining(","))));
             }
 
@@ -284,17 +321,17 @@ public class TrashMusicNotation {
             for (int sp = 0; sp < soundParts.length; ++sp) {
                 List<String> lineList = new ArrayList<>();
                 for (int p = 0; p < soundParts[sp].size(); ++p) {
-                    MeasurePart mp = soundParts[sp].get(p);
-                    MeasurePart nextPart = p == soundParts[sp].size() - 1 ? null : soundParts[sp].get(p + 1);
-                    if (mp.getPartType() == MeasurePart.PartType.BEGIN_OF_REPEAT) {
+                    PlainMeasurePart mp = soundParts[sp].get(p);
+                    PlainMeasurePart nextPart = p == soundParts[sp].size() - 1 ? null : soundParts[sp].get(p + 1);
+                    if (mp.getPartType() == PlainMeasurePart.PartType.BEGIN_OF_REPEAT) {
                         lineList.add("||:");
                     }
                     processListToList(mp, lineList);
-                    if (mp.getPartType() == MeasurePart.PartType.END_OF_REPEAT) {
+                    if (mp.getPartType() == PlainMeasurePart.PartType.END_OF_REPEAT) {
                         lineList.add(":||");
-                    } else if (mp.getPartType() == MeasurePart.PartType.REPEAT_FROM_START) {
+                    } else if (mp.getPartType() == PlainMeasurePart.PartType.REPEAT_FROM_START) {
                         lineList.add("||");
-                    } else if (nextPart != null && nextPart.getPartType() != MeasurePart.PartType.BEGIN_OF_REPEAT) {
+                    } else if (nextPart != null && nextPart.getPartType() != PlainMeasurePart.PartType.BEGIN_OF_REPEAT) {
                         lineList.add("|");
                     }
                     if (p % partsPerLine == partsPerLine - 1) {
@@ -320,21 +357,16 @@ public class TrashMusicNotation {
         }
     }
 
-    private void processListToList(MusicList list, List<String> outList) {
-        for (MusicElement element : list) {
-            if (element instanceof MusicList) {
-                processListToList((MusicList) element, outList);
-            } else if (element instanceof Note) {
-                Note note = (Note) element;
-                outList.add(note.toStringNotation(beatLength) + " ");
-                for (Map.Entry<Integer, Lyrics.LyricParagraph> entry : lyrics.entrySet()) {
-                    Text text = entry.getValue().get(note);
-                    if (text != null) {
-                        if (lyrics.size() == 1) {
-                            outList.add(text.getText() + " ");
-                        } else {
-                            outList.add(String.format("%d:%s ", entry.getKey(), text.getText()));
-                        }
+    private void processListToList(PlainMeasurePart list, List<String> outList) {
+        for (Note note : list) {
+            outList.add(note.toStringNotation(beatLength) + " ");
+            for (Map.Entry<Integer, Lyrics.LyricParagraph> entry : lyrics.entrySet()) {
+                Text text = entry.getValue().get(note);
+                if (text != null) {
+                    if (lyrics.size() == 1) {
+                        outList.add(text.getText() + " ");
+                    } else {
+                        outList.add(String.format("%d:%s ", entry.getKey(), text.getText()));
                     }
                 }
             }
@@ -356,7 +388,7 @@ public class TrashMusicNotation {
         double beatDurationMs = 60000.0 / speed;
         double passDuration = 0.0;
         double writtenDuration = 0.0;
-        for (MeasurePart ignored : soundParts[0]) {
+        for (PlainMeasurePart ignored : soundParts[0]) {
             for (int i = 0; i < beatsCount; ++i) {
                 Drumbeat drum = drums[i];
                 passDuration += beatDurationMs;
@@ -369,24 +401,56 @@ public class TrashMusicNotation {
         wavFile.flushBuffer();
         return wavFile;
     }
-
-    public void writeWav(boolean withDrums) {
-        OvertoneEqualizer[] oes = new OvertoneEqualizer[soundParts.length];
-        for (int i = 0; i < soundParts.length; ++i) oes[i] = OvertoneEqualizer.PLAIN;
-        writeWav(WavFile.DEFAULT_SAMPLE_RATE, oes, withDrums);
+    
+    private OvertoneEqualizer[] defaultEqualizers(int nSoundParts) {
+        if (nSoundParts == 1) {
+            return new OvertoneEqualizer[]{OvertoneEqualizer.PLAIN};
+        } else if (nSoundParts == 2) {
+            return new OvertoneEqualizer[]{
+                    new OvertoneEqualizer(
+                            Overtone.LOW,
+                            Equalizer.PLAIN
+                    ),
+                    new OvertoneEqualizer(
+                            Overtone.HIGH,
+                            Equalizer.PLAIN
+                    )
+            };
+        } else {
+            OvertoneEqualizer[] oes = new OvertoneEqualizer[nSoundParts];
+            for (int i = 0; i < soundParts.length; ++i) {
+                oes[i] = OvertoneEqualizer.PLAIN;
+            }
+            return oes;
+        }
     }
 
-    public void writeWav(int sampleRate, OvertoneEqualizer[] overtoneEqualizers, boolean withDrums) {
+    public void writeWav(boolean withDrums) {
+        int sampleRate = WavFile.DEFAULT_SAMPLE_RATE;
+        OvertoneEqualizer[] oes = defaultEqualizers(soundParts.length);
+        VolumeTransform[] transforms = new VolumeTransform[soundParts.length];
+        for (int i = 0; i < soundParts.length; ++i) {
+            transforms[i] = new ExpVolumeTransform(sampleRate / 2);
+        }
+        writeWav(sampleRate, oes, transforms, withDrums);
+    }
+
+    void writeWav(int sampleRate,
+                  OvertoneEqualizer[] overtoneEqualizers,
+                  VolumeTransform[] transforms,
+                  boolean withDrums) {
         WavFile wavFile;
         if (soundParts.length == 1) {
-            wavFile = new WaveMaker().saveOneSoundPart(soundParts[0], sampleRate, overtoneEqualizers[0]);
+            wavFile = new WaveMaker().saveOneSoundPart(
+                    waveFile(), soundParts[0], sampleRate, overtoneEqualizers[0], transforms[0]);
         } else {
             if (soundParts.length != overtoneEqualizers.length) {
                 throw new TrashMusicException("Number of sound parts and number of eqs do not match");
             }
             WavFile[] wavFiles = new WavFile[soundParts.length];
             for (int i = 0; i < wavFiles.length; ++i) {
-                wavFiles[i] = new WaveMaker().saveOneSoundPart(soundParts[i], sampleRate, overtoneEqualizers[i]);
+                wavFiles[i] = new WaveMaker().saveOneSoundPart(
+                        waveFile(i), soundParts[i], sampleRate, overtoneEqualizers[i], transforms[i]);
             }
             wavFile = overlayMultipleWaves(wavFiles);
         }
@@ -399,86 +463,15 @@ public class TrashMusicNotation {
             }
         }
         wavFile.writeWav();
-    }
-
-    private class WaveMaker {
-
-        // 以下两项用于处理 double 转 long 时的累积误差
-        private double totalNotationDurationMs;  // 已经处理的时长（乐谱上）
-        private long totalWrittenDurationMs;  // 已经写入文件的时长
-
-        private WavFile saveOneSoundPart(SoundPart soundPart, int frameRate, OvertoneEqualizer overtoneEqualizer) {
-            WavFile wavFile = WavFile.createNew(waveFile(), frameRate, 1);
-
-            int repeatIndex = -1;
-            Set<Integer> usedRepeats = new TreeSet<>();
-
-            int partIndex = 0;  // index of measurePart
-            while (partIndex < soundPart.size()) {
-                MeasurePart measurePart = soundPart.get(partIndex++);
-                if (measurePart.getPartType() == MeasurePart.PartType.BEGIN_OF_REPEAT) {
-                    repeatIndex = partIndex;
-                } else if (measurePart.getPartType() == MeasurePart.PartType.END_OF_REPEAT) {
-                    if (!usedRepeats.contains(partIndex)) {
-                        usedRepeats.add(partIndex);
-                        if (repeatIndex == -1) throw new TrashMusicException("No begin of repeat");
-                        partIndex = repeatIndex;
-                    }
-                } else if (measurePart.getPartType() == MeasurePart.PartType.REPEAT_FROM_START) {
-                    if (!usedRepeats.contains(partIndex)) {
-                        usedRepeats.add(partIndex);
-                        partIndex = 0;
-                    }
-                }
-                processList(measurePart, soundPart.getVolume(), wavFile, overtoneEqualizer);
-            }
-
-            wavFile.flushBuffer();
-            return wavFile;
-        }
-
-        private void processList(MusicList lst, int soundPartVol, WavFile wavFile, OvertoneEqualizer overtoneEqualizer) {
-            for (MusicElement element : lst) {
-                if (element instanceof BeatGroup) {
-                    processList((MusicList) element, soundPartVol, wavFile, overtoneEqualizer);
-                } else if (element instanceof Note) {
-                    Note note = (Note) element;
-                    double duration = note.getDurationMs(speed);
-                    totalNotationDurationMs += duration;
-                    double writeDuration = totalNotationDurationMs - totalWrittenDurationMs;
-                    double freq = note.isPause() ? 0.0 : note.toPitch(basePitch).getFreq();
-                    totalWrittenDurationMs += wavFile.putFlatFreq(
-                            freq,
-                            writeDuration,
-                            soundPartVol * baseVolMultiplier,
-                            overtoneEqualizer.overtone,
-                            overtoneEqualizer.equalizer);
-                }
-            }
-        }
+        System.out.println("Write finish");
     }
 
     private WavFile overlayMultipleWaves(WavFile[] wavFiles) {
-        WavFile current = wavFiles[0];
-        for (int i = 1; i < wavFiles.length; ++i) {
-            WavFile next = wavFiles[i];
-            current = overlayTwoWaves(current, next);
+        WavFile first = wavFiles[0];
+        WavFile resultFile = WavFile.createNew(waveFile(), first.getSampleRate(), first.getNumChannels());
+        for (WavFile wavFile : wavFiles) {
+            resultFile.overlay(wavFile);
         }
-        return current;
-    }
-
-    private WavFile overlayTwoWaves(WavFile file1, WavFile file2) {
-        int[] data1 = file1.getChannel(0);
-        int[] data2 = file2.getChannel(0);
-        int[] result = new int[data1.length];
-        for (int i = 0; i < data1.length; ++i) {
-            if (i < data2.length) {
-                result[i] = data1[i] + data2[i];
-            }
-        }
-        // todo: 多channels
-        WavFile resultFile = WavFile.createNew(file1.getFile(), file1.getSampleRate(), file1.getNumChannels());
-        resultFile.setData(result, 0);
         return resultFile;
     }
 
@@ -494,14 +487,14 @@ public class TrashMusicNotation {
                 '}';
     }
 
-    public SoundPart getSoundPartByName(String name) {
-        for (SoundPart soundPart : soundParts) {
+    public PlainSoundPart getSoundPartByName(String name) {
+        for (PlainSoundPart soundPart : soundParts) {
             if (soundPart.getName().equals(name)) return soundPart;
         }
         return null;
     }
 
-    public SoundPart getSoundPart(int index) {
+    public PlainSoundPart getSoundPart(int index) {
         return soundParts[index];
     }
 
@@ -525,12 +518,52 @@ public class TrashMusicNotation {
         return speed;
     }
 
+    public void setBasePitch(Pitch basePitch) {
+        this.basePitch = basePitch;
+    }
+
     public Pitch getBasePitch() {
+        return basePitch;
+    }
+
+    public Pitch getBasePlayPitch() {
         return basePitch;
     }
 
     public Lyrics getLyrics() {
         return lyrics;
+    }
+
+    public void deleteNote(PlainMeasurePart part, Note note) {
+        for (PlainSoundPart psp : soundParts) {
+            for (PlainMeasurePart pmp : psp) {
+                if (pmp == part) {
+                    if (pmp.remove(note)) break;
+                }
+            }
+        }
+    }
+
+    public void deleteText() {
+
+    }
+
+    public void addNote() {
+
+    }
+
+    public void addMeasurePart(PlainMeasurePart.PartType type, int soundPartIndex) {
+
+    }
+
+    public void appendMeasurePart(PlainMeasurePart.PartType type, int soundPartIndex) {
+        if (type == PlainMeasurePart.PartType.BEGIN_OF_REPEAT) {
+            PlainMeasurePart last = soundParts[soundPartIndex].getLast();
+            last.setPartType(PlainMeasurePart.PartType.BEGIN_OF_REPEAT);
+        } else {
+            PlainMeasurePart newPart = new PlainMeasurePart(type);
+            soundParts[soundPartIndex].add(newPart);
+        }
     }
 
     public static class OvertoneEqualizer {
@@ -549,5 +582,72 @@ public class TrashMusicNotation {
 
     private static class StringList extends ArrayList<String> {
 
+    }
+
+    private class WaveMaker {
+
+        // 以下两项用于处理 double 转 long 时的累积误差
+        private double totalNotationDurationMs;  // 已经处理的时长（乐谱上）
+        private long totalWrittenDurationMs;  // 已经写入文件的时长
+
+        private WavFile saveOneSoundPart(File file,
+                                         PlainSoundPart soundPart,
+                                         int frameRate,
+                                         OvertoneEqualizer overtoneEqualizer,
+                                         VolumeTransform transform) {
+            WavFile wavFile = WavFile.createNew(file, frameRate, 1);
+
+            int repeatIndex = -1;
+            Set<Integer> usedRepeats = new TreeSet<>();
+
+            int partIndex = 0;  // index of measurePart
+            while (partIndex < soundPart.size()) {
+                PlainMeasurePart measurePart = soundPart.get(partIndex++);
+                double beatsInPart = measurePart.getBeatsInPart();
+                if (beatsInPart != 0 && beatsInPart != beatsCount) {
+                    System.err.printf("第%d声部第%d小节拍数不符。实际拍数为%f拍%n",
+                            soundPart.getIndex() + 1, partIndex, measurePart.getBeatsInPart());
+                }
+                if (measurePart.getPartType() == PlainMeasurePart.PartType.BEGIN_OF_REPEAT) {
+                    repeatIndex = partIndex;
+                } else if (measurePart.getPartType() == PlainMeasurePart.PartType.END_OF_REPEAT) {
+                    if (!usedRepeats.contains(partIndex)) {
+                        usedRepeats.add(partIndex);
+                        if (repeatIndex == -1) throw new TrashMusicException("No begin of repeat");
+                        partIndex = repeatIndex;
+                    }
+                } else if (measurePart.getPartType() == PlainMeasurePart.PartType.REPEAT_FROM_START) {
+                    if (!usedRepeats.contains(partIndex)) {
+                        usedRepeats.add(partIndex);
+                        partIndex = 0;
+                    }
+                }
+                processList(measurePart, soundPart.getVolume(), wavFile, overtoneEqualizer, transform);
+            }
+
+            wavFile.flushBuffer();
+            return wavFile;
+        }
+
+        private void processList(PlainMeasurePart lst,
+                                 int soundPartVol,
+                                 WavFile wavFile,
+                                 OvertoneEqualizer overtoneEqualizer,
+                                 VolumeTransform transform) {
+            for (Note note : lst) {
+                double duration = note.getDurationMs(speed);
+                totalNotationDurationMs += duration;
+                double writeDuration = totalNotationDurationMs - totalWrittenDurationMs;
+                double freq = note.isPause() ? 0.0 : note.toPitch(basePitch).getFreq();
+                totalWrittenDurationMs += wavFile.putFlatFreq(
+                        freq,
+                        writeDuration,
+                        soundPartVol * baseVolMultiplier,
+                        transform,
+                        0,
+                        overtoneEqualizer.overtone,
+                        overtoneEqualizer.equalizer);
+            }
+        }
     }
 }

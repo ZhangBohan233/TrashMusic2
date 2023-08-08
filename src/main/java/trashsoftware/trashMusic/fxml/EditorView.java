@@ -1,6 +1,8 @@
 package trashsoftware.trashMusic.fxml;
 
 import javafx.application.Platform;
+import javafx.event.ActionEvent;
+import javafx.event.Event;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
@@ -8,12 +10,12 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
-import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
+import javafx.scene.control.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import trashsoftware.trashMusic.core.AudioPlayer;
+import trashsoftware.trashMusic.core.Pitch;
+import trashsoftware.trashMusic.core.PlainMeasurePart;
 import trashsoftware.trashMusic.core.TrashMusicNotation;
 import trashsoftware.trashMusic.core.wav.WavFile;
 
@@ -23,6 +25,20 @@ import java.net.URL;
 import java.util.ResourceBundle;
 
 public class EditorView implements Initializable {
+
+    @FXML
+    ToggleGroup timeValueGroup, sharpFlatGroup;
+
+    @FXML
+    CheckBox extendCheckBox;
+
+    @FXML
+    ScrollPane scrollPane;
+
+    @FXML
+    Button baseCHighBtn, baseCLowBtn;
+    @FXML
+    Label baseCLabel;
 
     @FXML
     Label beatsCountLabel, beatLengthLabel;
@@ -39,6 +55,11 @@ public class EditorView implements Initializable {
     @FXML
     Button playBtn, pauseBtn, stopBtn;
 
+    @FXML
+    Button highBtn, lowBtn;
+    @FXML
+    Label lowHighLabel;
+
     private GraphicsContext graphics;
 
     private NotationWrapper notationWrapper;
@@ -46,7 +67,8 @@ public class EditorView implements Initializable {
     private ResourceBundle resources;
 
     private AudioPlayer audioPlayer;
-    private long currentChecksum;
+    private long wavChecksum;  // 磁盘上wav文件对应的TrashMusicNotation校验码
+    private long tmnChecksum;  // 磁盘上tmn文件的校验码
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -59,8 +81,13 @@ public class EditorView implements Initializable {
 
     private void setBoxes() {
         for (int s = 40; s < 209; ++s) speedBox.getItems().add(s);
-        basePitchBox.getItems().addAll("C", "#C", "♭D", "D", "#D", "♭E", "E", "F", "#F", "♭G", "G", "#G", "♭A",
-                "A", "#A", "♭B", "B");
+        basePitchBox.getItems().addAll("C", "♯C", "♭D", "D", "♯D", "♭E", "E", "F", "♯F", "♭G", "G", "♯G", "♭A",
+                "A", "♯A", "♭B", "B");
+        timeValueGroup.selectToggle(timeValueGroup.getToggles().get(2));
+        sharpFlatGroup.selectToggle(sharpFlatGroup.getToggles().get(1));
+        
+        basePitchBox.getSelectionModel().selectedItemProperty().addListener(((observable, oldValue, newValue) -> 
+                basePitchChanged()));
     }
 
     public void setup(Stage stage, File tmnFile) {
@@ -71,19 +98,21 @@ public class EditorView implements Initializable {
     public void setFile(File tmnFile) {
         if (notationWrapper != null) {
             notationWrapper.unbindListeners();
+//            basePitchBox.getSelectionModel().selectedItemProperty().removeListener();
         }
-        this.notationWrapper = new NotationWrapper(TrashMusicNotation.fromTmnFile(tmnFile), canvas);
-        currentChecksum = notationWrapper.getNotation().notationChecksum();
+        this.notationWrapper = new NotationWrapper(TrashMusicNotation.fromTmnFile(tmnFile), this, canvas);
+        wavChecksum = notationWrapper.getNotation().notationChecksum();
+        tmnChecksum = wavChecksum;
 
         speedBox.getSelectionModel().select(Integer.valueOf(notationWrapper.getNotation().getSpeed()));
         basePitchBox.getSelectionModel().select(notationWrapper.getNotation().getBasePitch().toStringMusical());
         beatsCountLabel.setText(String.valueOf(notationWrapper.getNotation().getBeatsCount()));
         beatLengthLabel.setText(String.valueOf((int) (1 / notationWrapper.getNotation().getBeatLength())));
+        
+        baseCLabel.setText(String.valueOf(notationWrapper.getNotation().getBasePitch().getMajor()));
 
-        long begin = System.currentTimeMillis();
-        notationWrapper.draw();
-        System.out.println(System.currentTimeMillis() - begin);
-        notationWrapper.bindListeners();
+        notationWrapper.refresh();
+        notationWrapper.bindListeners(scrollPane);
     }
 
     @FXML
@@ -144,10 +173,28 @@ public class EditorView implements Initializable {
             newStage.show();
         }
     }
+    
+    private void basePitchChanged() {
+        String letter = basePitchBox.getValue();
+        String major = baseCLabel.getText();
+        Pitch pitch = Pitch.fromStdRep(letter + major);
+        notationWrapper.getNotation().setBasePitch(pitch);
+    }
+
+    @FXML
+    void refreshWavAction() {
+        notationWrapper.getNotation().writeWav(false);
+    }
+
+    @FXML
+    void undoAction() {
+
+    }
 
     @FXML
     void saveAction() throws IOException {
         notationWrapper.getNotation().saveAsTmn();
+        tmnChecksum = notationWrapper.getNotation().notationChecksum();
     }
 
     @FXML
@@ -159,6 +206,7 @@ public class EditorView implements Initializable {
         File file = chooser.showSaveDialog(stage);
         if (file != null) {
             notationWrapper.getNotation().saveAsTmn(file);
+            tmnChecksum = notationWrapper.getNotation().notationChecksum();
         }
     }
 
@@ -169,7 +217,8 @@ public class EditorView implements Initializable {
         stopBtn.setDisable(false);
         if (audioPlayer == null) {
             checkMusicFile();
-            audioPlayer = new AudioPlayer(notationWrapper.getNotation().waveFile(), this::terminateCallback);
+            audioPlayer = new AudioPlayer(notationWrapper.getNotation().waveFile(), 
+                    this::terminateCallback);
         }
         Thread thread = new Thread(() -> {
             try {
@@ -198,6 +247,48 @@ public class EditorView implements Initializable {
         if (audioPlayer != null) audioPlayer.terminate();
     }
 
+    @FXML
+    void measurePartButtonsAction(ActionEvent buttonEvent) {
+        Button button = (Button) buttonEvent.getSource();
+        notationWrapper.addMeasurePart(button.getText().strip());
+    }
+
+    @FXML
+    void baseCHighAction() {
+        int cur = Integer.parseInt(baseCLabel.getText());
+        baseCLabel.setText(String.valueOf(cur + 1));
+        baseCLowBtn.setDisable(false);
+        if (cur == 6) baseCHighBtn.setDisable(true);
+        
+        basePitchChanged();
+    }
+
+    @FXML
+    void baseCLowAction() {
+        int cur = Integer.parseInt(baseCLabel.getText());
+        baseCLabel.setText(String.valueOf(cur - 1));
+        baseCHighBtn.setDisable(false);
+        if (cur == 2) baseCLowBtn.setDisable(true);
+        
+        basePitchChanged();
+    }
+
+    @FXML
+    void highAction() {
+        int cur = Integer.parseInt(lowHighLabel.getText());
+        lowHighLabel.setText(String.valueOf(cur + 1));
+        lowBtn.setDisable(false);
+        if (cur == 2) highBtn.setDisable(true);
+    }
+
+    @FXML
+    void lowAction() {
+        int cur = Integer.parseInt(lowHighLabel.getText());
+        lowHighLabel.setText(String.valueOf(cur - 1));
+        highBtn.setDisable(false);
+        if (cur == -2) lowBtn.setDisable(true);
+    }
+
     private void terminateCallback() {
         Platform.runLater(() -> {
             audioPlayer = null;
@@ -213,51 +304,10 @@ public class EditorView implements Initializable {
 
     private void checkMusicFile() {
         long newChecksum = notationWrapper.getNotation().notationChecksum();
-        if (newChecksum == currentChecksum) {
+        if (newChecksum == wavChecksum) {
             if (notationWrapper.getNotation().waveFile().exists()) return;
         }
         notationWrapper.getNotation().writeWav(false);
-        currentChecksum = newChecksum;
+        wavChecksum = newChecksum;
     }
-
-//    private static class BasePitch {
-//        private static BasePitch AFlat = new BasePitch("♭A", Pitch.fromStdRep("bA3"));
-//        A("A", Pitch.fromStdRep("A3")),
-//        ASharp("#A", Pitch.fromStdRep("#A3")),
-//        BFlat("♭B", Pitch.fromStdRep("bB3")),
-//        B("B", Pitch.fromStdRep("B3")),
-//        C("C"),
-//        CSharp("#C"),
-//        DFlat("♭D"),
-//        D("D"),
-//        DSharp("#D"),
-//        EFlat("♭E"),
-//        E("E"),
-//        F("F"),
-//        FSharp("#F"),
-//        GFlat("♭G"),
-//        G("G"),
-//        GSharp("#G");
-//
-//        private final String rep;
-//        private final Pitch pitch;
-//
-//        BasePitch(String rep, Pitch pitch) {
-//            this.rep = rep;
-//            this.pitch = pitch;
-//        }
-//
-//        BasePitch(String rep) {
-//            this(rep, Pitch.fromStdRep(rep + "4"));
-//        }
-//
-//        @Override
-//        public String toString() {
-//            return rep;
-//        }
-//
-//        public Pitch getPitch() {
-//            return pitch;
-//        }
-//    }
 }
